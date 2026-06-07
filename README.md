@@ -1,5 +1,7 @@
 # VR Shooting Range
 
+![VR Shooting Range banner](www/banner.jpg)
+
 A WebXR shooting-range game for the Meta Quest (and any WebXR headset), built with
 [A-Frame](https://aframe.io/) 1.7. You stand in a long concrete range with a pistol in
 each hand, shoot the **START** disc to begin, and clear waves of bullseye targets across
