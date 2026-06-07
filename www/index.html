@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>VR Shooting Range — A-Frame / Quest</title>
+
+    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
+    <!-- Local A-Frame build; CDN as a fallback. Scripts load with the same
+         cache-busting token (?cb=...) as the document — the "RELOAD" target
+         button reloads the scene with fresh index.html, game.js and sounds. -->
+    <script>
+      (function () {
+        var cb = (location.search.match(/[?&]cb=([^&]+)/) || [])[1];
+        // document.write preserves order: A-Frame before config.js before game.js.
+        // A-Frame is large and rarely changes — load it with a shared token (cached).
+        // config.js and game.js change constantly — ALWAYS a fresh token, so every
+        // reload (including a plain F5) takes the current version, not the cache.
+        // config.js MUST come FIRST: game.js reads GAME_CONFIG from it.
+        var t = Date.now();
+        // Hand the same token to game.js so the sound prefetch (sfx/*.mp3) also goes
+        // past the cache — otherwise Quest keeps the old sample and the sound "won't play".
+        window.__CB = '?cb=' + t;
+        document.write('<script src="config.js?cb=' + t + '"><\/script>');
+        document.write('<script src="game.js?cb=' + t + '"><\/script>');
+      })();
+    </script>
+  </head>
+
+  <body>
+    <a-scene
+      game-state
+      levels
+      game-timer
+      background="color: #101018"
+      renderer="antialias: true; colorManagement: true"
+      webxr="optionalFeatures: local-floor, bounded-floor">
+
+      <!-- Pistol model (Quaternius, CC0). Loaded locally, preloaded. -->
+      <a-assets timeout="10000">
+        <a-asset-item id="pistolModel" src="models/pistol.glb"></a-asset-item>
+      </a-assets>
+
+      <!-- Lighting. NOTE: intensities raised for A-Frame 1.7+ (THREE r173).
+           In r165 Three.js dropped the legacy light model (useLegacyLights), and
+           the old values (ambient 0.6 / directional 0.8) now light noticeably
+           darker. If the room looks too bright/dark — tweak these two numbers. -->
+      <a-entity light="type: ambient; intensity: 2.0; color: #BBC"></a-entity>
+      <a-entity light="type: directional; intensity: 2.6" position="2 4 1"></a-entity>
+
+      <!-- Floor: concrete tiling (procedural texture) -->
+      <!-- The floor center is shifted to the center of the elongated room (z=6) and
+           the radius is increased so the circle covers the z=-10..22 zone. repeat
+           is raised proportionally so the concrete "panel" size stays the same. -->
+      <a-circle
+        class="surface"
+        rotation="-90 0 0"
+        position="0 0 6"
+        radius="19"
+        material="color: #20232E; roughness: 1"
+        proc-texture="base: #20232E; line: #14161e; accent: #2b2f3c; repeat: 15 15"></a-circle>
+      <!-- Distance markings on the floor: a dashed center line with distance
+           labels to the front wall (5m, 10m, 15m). See range-markings. -->
+      <a-entity range-markings="backZ: 21.9"></a-entity>
+
+      <!-- Room: 4 walls + ceiling. Simple boxes with a procedural "concrete"
+           texture. class="surface" — bullet holes are left on them too. -->
+      <!-- Front wall (behind the targets) -->
+      <a-box class="surface" position="0 2 -10" width="16" height="6" depth="0.2"
+        material="color: #1b1f2b; roughness: 1"
+        proc-texture="base: #1b1f2b; line: #0e1017; accent: #2b3140; repeat: 8 3"></a-box>
+      <!-- Back wall (behind the player): moved from z=6 to z=22 — the room is
+           doubled backward (16→32 m). The front wall and targets stay in place. -->
+      <a-box class="surface" position="0 2 22" width="16" height="6" depth="0.2"
+        material="color: #1b1f2b; roughness: 1"
+        proc-texture="base: #1b1f2b; line: #0e1017; accent: #2b3140; repeat: 8 3"></a-box>
+      <!-- Left wall: runs along the whole room z=-10..22 (length 32, center z=6).
+           repeat along the length raised 8→16 so panels keep their size. -->
+      <a-box class="surface" position="-8 2 6" width="32" height="6" depth="0.2" rotation="0 90 0"
+        material="color: #181c27; roughness: 1"
+        proc-texture="base: #181c27; line: #0d0f15; accent: #262b38; repeat: 16 3"></a-box>
+      <!-- Right wall -->
+      <a-box class="surface" position="8 2 6" width="32" height="6" depth="0.2" rotation="0 90 0"
+        material="color: #181c27; roughness: 1"
+        proc-texture="base: #181c27; line: #0d0f15; accent: #262b38; repeat: 16 3"></a-box>
+      <!-- Ceiling: covers the elongated room (depth 16→32, center z=6). -->
+      <a-box class="surface" position="0 5 6" width="16" height="0.2" depth="32"
+        material="color: #15181f; roughness: 1"
+        proc-texture="base: #15181f; line: #0c0d12; accent: #20242e; repeat: 8 16"></a-box>
+
+      <!-- Scoreboard on the upper part of the wall: only level and time. Score/
+           kills/accuracy are moved to the mission-board panel below. -->
+      <a-entity position="0 3.5 -9.88">
+        <a-entity id="hud-level" position="0 0.45 0"
+          ctext="value: LEVEL 1   GOAL 0/6; color: #3A86FF; size: 0.6"></a-entity>
+        <a-entity id="hud-timer" position="0 -0.4 0"
+          ctext="value: TIME 00:00; color: #6FD08C; size: 0.5"></a-entity>
+      </a-entity>
+
+      <!-- Level-change banner (on the wall, appears briefly) -->
+      <a-entity id="level-banner" visible="false" position="0 2.4 -9.8"
+        ctext="value: LEVEL 1; color: #FFD60A; size: 0.62"></a-entity>
+
+      <!-- Combat panel on the front wall (bottom center, below the target zone):
+           how many targets are left to clear on the level and the current accuracy.
+           The values are updated by the levels and game-state components (see mission-board). -->
+      <a-entity id="mission-board" position="0 0.62 -9.88" mission-board></a-entity>
+
+      <!-- Per-level stats table: on the left wall, facing the room. Rows are
+           added by the levels component as you progress (see recordLevel). -->
+      <a-entity id="stats-board" position="-7.88 2.45 -5" rotation="0 90 0"
+        stats-table></a-entity>
+
+      <!-- Rules and scoring board: on the right wall, facing the room
+           (mirroring the stats table). The content is drawn by the rules-board
+           component (game.js), point numbers taken from SCORING. -->
+      <a-entity id="rules-board" position="7.88 2.45 -4" rotation="0 -90 0"
+        rules-board></a-entity>
+
+      <!-- START target in the top-left corner of the front wall (from the player's
+           side: left = −X, up = +Y). Flush in front of the wall (z=-9.8), with room
+           for the 0.6 radius from the edges. Shooting it starts the game (and
+           restarts after completion). The start-button component (game.js) calls
+           levels.startGame(). Visibility/arming is controlled by levels. -->
+      <a-entity id="start-button" start-button visible="true"
+        geometry="primitive: cylinder; radius: 0.6; height: 0.12"
+        rotation="90 0 0"
+        position="-7 4.2 -9.8"
+        material="color: #2ECC71; emissive: #0E5B2E; emissiveIntensity: 0.5">
+        <a-entity rotation="-90 0 0" position="0 0.07 0"
+          ctext="value: START; color: #06210F; size: 0.22; weight: bold"></a-entity>
+      </a-entity>
+
+      <!-- Targets: basic type only — all identical (red, 10 points, 1 HP, no
+           rarity and no lifetime timer). The per-level size is uniform and set
+           by the target/levels component (see currentTargetRadius), so the
+           geometry is the same for all. IMPORTANT: parameters go INSIDE
+           target="..." — A-Frame does not read separate HTML attributes into
+           this.data. The number of <a-entity> defines how many targets hang on
+           the wall at once. -->
+      <a-entity target="points: 10" target-rings
+        geometry="primitive: cylinder; radius: 0.4; height: 0.1"
+        rotation="90 0 0"
+        material="color: #E84A4A; emissive: #401010; emissiveIntensity: 0.3"></a-entity>
+      <a-entity target="points: 10" target-rings
+        geometry="primitive: cylinder; radius: 0.4; height: 0.1"
+        rotation="90 0 0"
+        material="color: #E84A4A; emissive: #401010; emissiveIntensity: 0.3"></a-entity>
+      <a-entity target="points: 10" target-rings
+        geometry="primitive: cylinder; radius: 0.4; height: 0.1"
+        rotation="90 0 0"
+        material="color: #E84A4A; emissive: #401010; emissiveIntensity: 0.3"></a-entity>
+      <a-entity target="points: 10" target-rings
+        geometry="primitive: cylinder; radius: 0.4; height: 0.1"
+        rotation="90 0 0"
+        material="color: #E84A4A; emissive: #401010; emissiveIntensity: 0.3"></a-entity>
+      <a-entity target="points: 10" target-rings
+        geometry="primitive: cylinder; radius: 0.4; height: 0.1"
+        rotation="90 0 0"
+        material="color: #E84A4A; emissive: #401010; emissiveIntensity: 0.3"></a-entity>
+      <a-entity target="points: 10" target-rings
+        geometry="primitive: cylinder; radius: 0.4; height: 0.1"
+        rotation="90 0 0"
+        material="color: #E84A4A; emissive: #401010; emissiveIntensity: 0.3"></a-entity>
+
+      <!-- "RELOAD" target button: moved to the RIGHT wall and shifted behind the
+           start line (z=3), away from the firing direction — so it isn't shot by
+           accident while shooting targets. Shooting it reloads the scene with a
+           cache bust (the reload-button component in game.js). A green disc flush
+           with the wall, facing the room (-X). -->
+      <a-entity position="7.85 1.6 3">
+        <a-entity reload-button
+          geometry="primitive: cylinder; radius: 0.32; height: 0.1"
+          rotation="0 0 90"
+          material="color: #2ECC71; emissive: #0E5B2E; emissiveIntensity: 0.45"></a-entity>
+        <a-entity position="-0.06 0 0" rotation="0 -90 0"
+          ctext="value: RELOAD; color: #06210F; size: 0.12"></a-entity>
+      </a-entity>
+
+      <!-- Player: camera + controller hands -->
+      <a-entity id="rig" position="0 0 0" locomotion>
+        <a-camera position="0 1.6 0" wasd-controls="enabled: false" audio-listener-sync></a-camera>
+
+        <!-- Left hand: pistol (GLB model) instead of the controller model -->
+        <a-entity
+          id="leftHand"
+          oculus-touch-controls="hand: left; model: false"
+          shoot>
+          <a-entity class="gun" rotation="0 -90 -35">
+            <a-entity gltf-model="#pistolModel" rotation="0 180 -90" scale="0.02 0.02 0.02" position="0 -0.04 0.02"></a-entity>
+            <!-- muzzle flash: shoot.flash() hooks onto it -->
+            <a-entity class="muzzle-flash" visible="false" position="-0.05 -0.16 0.02"
+              geometry="primitive: sphere; radius: 0.03"
+              material="color: #FFD60A; emissive: #FFD60A; shader: flat"></a-entity>
+          </a-entity>
+        </a-entity>
+
+        <!-- Right hand: pistol (GLB model) instead of the controller model -->
+        <a-entity
+          id="rightHand"
+          oculus-touch-controls="hand: right; model: false"
+          shoot>
+          <a-entity class="gun" rotation="0 -90 -35">
+            <a-entity gltf-model="#pistolModel" rotation="0 180 -90" scale="0.02 0.02 0.02" position="0 -0.04 0.02"></a-entity>
+            <a-entity class="muzzle-flash" visible="false" position="-0.05 -0.16 0.02"
+              geometry="primitive: sphere; radius: 0.03"
+              material="color: #FFD60A; emissive: #FFD60A; shader: flat"></a-entity>
+          </a-entity>
+        </a-entity>
+      </a-entity>
+
+    </a-scene>
+  </body>
+</html>
