@@ -2,6 +2,10 @@
 
 ![VR Shooting Range banner](www/banner.jpg)
 
+## 🎮 [▶ PLAY NOW — netkot.github.io/vr-shooter](https://netkot.github.io/vr-shooter/)
+
+> Open the link on a **Meta Quest** (Meta Browser → **Enter VR**) or in any desktop browser to try it instantly — no install needed.
+
 A WebXR shooting-range game for the Meta Quest (and any WebXR headset), built with
 [A-Frame](https://aframe.io/) 1.7. You stand in a long concrete range with a pistol in
 each hand, shoot the **START** disc to begin, and clear waves of bullseye targets across
