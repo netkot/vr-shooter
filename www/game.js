@@ -2120,6 +2120,11 @@ AFRAME.registerComponent('shoot', {
     // Muzzle flash.
     this.flash();
 
+    // Haptic kick on this hand's controller. Read live (never cached) — a Quest
+    // hand can briefly disconnect/reconnect and swap its underlying controller
+    // instance, which is exactly what makes a cached actuator go dead on one hand.
+    this.vibrate(1.0, 60);
+
     // Ray from the controller position, tilted by PITCH downward relative to -Z.
     const obj = this.el.object3D;
     obj.getWorldPosition(this.origin);
@@ -2199,6 +2204,23 @@ AFRAME.registerComponent('shoot', {
         targetEl.components.target.hit(this.el, tHit.distance); // distance for scoring
       }
     }
+  },
+
+  // Haptic pulse on THIS hand's controller. Resolves the gamepad fresh each call
+  // instead of caching it — the superframe haptics component's caching is what
+  // breaks vibration on one hand after a hand reconnects (see issue.txt).
+  vibrate: function (strength, duration) {
+    const tc = this.el.components['tracked-controls-webxr'] ||
+               this.el.components['tracked-controls'];
+    if (!tc) return; // no controller (desktop/mouse debugging)
+    // WebXR: tc.controller is the XRInputSource (gamepad on .gamepad).
+    // WebVR fallback: tc.controller is already the Gamepad.
+    const src = tc.controller;
+    if (!src) return;
+    const gamepad = src.gamepad || src;
+    const actuators = gamepad && gamepad.hapticActuators;
+    if (!actuators || !actuators.length) return;
+    try { actuators[0].pulse(strength, duration); } catch (e) { /* haptics optional */ }
   },
 
   // A short flash at the "weapon's" muzzle.
