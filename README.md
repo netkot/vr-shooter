@@ -68,8 +68,8 @@ screen. It survives reloads and sessions (and degrades gracefully if storage is 
 
 ### Controls
 
-- **Trigger (either hand)** — fire that hand's pistol. Both hands hold a pistol, so you
-  can dual-wield.
+- **Trigger (either hand)** — fire that hand's pistol, with a **haptic kick** on that
+  controller. Both hands hold a pistol, so you can dual-wield.
 - **Left thumbstick** — move around the range, relative to where you're looking.
 - **Right thumbstick** — snap-turn in 30° steps.
 - **Desktop (no headset)** — click the mouse to fire, for quick testing in a browser.
@@ -93,6 +93,9 @@ screen. It survives reloads and sessions (and degrades gracefully if storage is 
   impacts, ringing casings, muffled concrete wall hits, and a level-up arpeggio. Real mp3
   samples are used when loaded, with on-the-fly synthesis as a fallback so the game is
   never silent.
+- **Haptics** — each shot pulses the firing hand's controller. The gamepad is resolved
+  live per shot rather than cached, so both controllers vibrate reliably even after a hand
+  disconnects and reconnects on Quest.
 - **Background music** — one random track per game, fading out smoothly on GAME OVER.
 - **Visuals** — muzzle flash, glowing tracers, ejected brass casings that bounce and ring,
   flying debris with gravity, and persistent **bullet holes** punched into the walls and
