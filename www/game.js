@@ -1574,8 +1574,8 @@ AFRAME.registerComponent('target', {
     try { SFX.hit(wp); } catch (e) { /* sound is not critical for scoring */ }
 
     if (this.hp > 0) {
-      // Target still alive: damage flash, a bit of debris, no points awarded.
-      spawnDebris(scene, wp, this.baseColor, 4);
+      // Target still alive: damage flash, a few chipped shards, no points awarded.
+      spawnShards(scene, wp, this.baseColor, 4);
       this.flashDamage();
       return;
     }
@@ -1588,7 +1588,7 @@ AFRAME.registerComponent('target', {
     const dist = distance != null ? distance : SCORING.distRef; // fallback: neutral ×1
     const points = SCORING.compute(reactionMs, dist);
     scene.emit('target-hit', { points: points });
-    spawnDebris(scene, wp, this.baseColor, 12);
+    spawnShards(scene, wp, this.baseColor, 14);
 
     // Remove the target instantly (scale 0 — rays no longer hit it).
     this.el.setAttribute('visible', false);
@@ -1839,6 +1839,56 @@ function spawnDebris (sceneEl, pos, color, count) {
     f.setAttribute('position', { x: pos.x, y: pos.y, z: pos.z });
 
     // random scatter direction, biased upward
+    const vx = (Math.random() - 0.5) * 2;
+    const vy = Math.random() * 1.5 + 0.8;
+    const vz = (Math.random() - 0.5) * 2;
+    const len = Math.hypot(vx, vy, vz) || 1;
+    const speed = 1.6 + Math.random() * 2.4;
+
+    f.setAttribute('debris', {
+      velocity: { x: vx / len * speed, y: vy / len * speed, z: vz / len * speed },
+      angular: {
+        x: (Math.random() - 0.5) * 12,
+        y: (Math.random() - 0.5) * 12,
+        z: (Math.random() - 0.5) * 12
+      },
+      life: 800 + Math.random() * 500
+    });
+    sceneEl.appendChild(f);
+  }
+}
+
+// Scatter `count` flat triangular shards from point pos — the way a clay target
+// breaks. Each shard is a random triangle (BufferGeometry, three vertices around
+// the center), double-sided so it's visible while tumbling. Physics/fade are
+// reused from the debris component; only the geometry differs from spawnDebris.
+function spawnShards (sceneEl, pos, color, count) {
+  for (let i = 0; i < count; i++) {
+    const f = document.createElement('a-entity');
+
+    // Random triangle: three vertices at ~120° around the center with jittered
+    // angles and radii — every shard has its own shape.
+    const r = 0.05 + Math.random() * 0.09;
+    const a0 = Math.random() * Math.PI * 2;
+    const verts = [];
+    for (let k = 0; k < 3; k++) {
+      const a = a0 + k * (Math.PI * 2 / 3) + (Math.random() - 0.5) * 0.9;
+      const rr = r * (0.55 + Math.random() * 0.75);
+      verts.push(Math.cos(a) * rr, Math.sin(a) * rr, 0);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({
+      color: color,
+      emissive: color,
+      emissiveIntensity: 0.25,
+      side: THREE.DoubleSide
+    });
+    f.setObject3D('mesh', new THREE.Mesh(geo, mat));
+    f.setAttribute('position', { x: pos.x, y: pos.y, z: pos.z });
+
+    // Scatter like debris: random direction, biased upward.
     const vx = (Math.random() - 0.5) * 2;
     const vy = Math.random() * 1.5 + 0.8;
     const vz = (Math.random() - 0.5) * 2;
