@@ -1858,32 +1858,33 @@ function spawnDebris (sceneEl, pos, color, count) {
   }
 }
 
-// Scatter `count` flat triangular shards from point pos — the way a clay target
-// breaks. Each shard is a random triangle (BufferGeometry, three vertices around
-// the center), double-sided so it's visible while tumbling. Physics/fade are
-// reused from the debris component; only the geometry differs from spawnDebris.
+// Scatter `count` triangular shards from point pos — the way a clay target
+// breaks. Each shard is a thin prism: a random triangle extruded a few
+// millimeters (ExtrudeGeometry), so edge-on it reads as a plate with thickness,
+// not a zero-width line. Physics/fade are reused from the debris component;
+// only the geometry differs from spawnDebris.
 function spawnShards (sceneEl, pos, color, count) {
   for (let i = 0; i < count; i++) {
     const f = document.createElement('a-entity');
 
-    // Random triangle: three vertices at ~120° around the center with jittered
-    // angles and radii — every shard has its own shape.
+    // Random triangle profile: three vertices at ~120° around the center with
+    // jittered angles and radii — every shard has its own shape.
     const r = 0.05 + Math.random() * 0.09;
     const a0 = Math.random() * Math.PI * 2;
-    const verts = [];
+    const shape = new THREE.Shape();
     for (let k = 0; k < 3; k++) {
       const a = a0 + k * (Math.PI * 2 / 3) + (Math.random() - 0.5) * 0.9;
       const rr = r * (0.55 + Math.random() * 0.75);
-      verts.push(Math.cos(a) * rr, Math.sin(a) * rr, 0);
+      if (k === 0) shape.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      else shape.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-    geo.computeVertexNormals();
+    const depth = 0.004 + Math.random() * 0.004; // plate thickness, 4–8 mm
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: depth, bevelEnabled: false });
+    geo.translate(0, 0, -depth / 2); // center the thickness on the entity origin
     const mat = new THREE.MeshStandardMaterial({
       color: color,
       emissive: color,
-      emissiveIntensity: 0.25,
-      side: THREE.DoubleSide
+      emissiveIntensity: 0.25
     });
     f.setObject3D('mesh', new THREE.Mesh(geo, mat));
     f.setAttribute('position', { x: pos.x, y: pos.y, z: pos.z });
