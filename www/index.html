@@ -39,6 +39,7 @@
       <!-- Pistol model (Quaternius, CC0). Loaded locally, preloaded. -->
       <a-assets timeout="10000">
         <a-asset-item id="pistolModel" src="models/pistol.glb"></a-asset-item>
+        <img id="logoImg" src="img/logo_1024x1024.jpg" crossorigin="anonymous" />
       </a-assets>
 
       <!-- Lighting. NOTE: intensities raised for A-Frame 1.7+ (THREE r173).
@@ -116,6 +117,11 @@
            component (game.js), point numbers taken from SCORING. -->
       <a-entity id="rules-board" position="7.88 2.45 -4" rotation="0 -90 0"
         rules-board></a-entity>
+
+      <!-- Studio logo, mounted just above the rules board (board top ~y=4.1,
+           ceiling underside at y=4.9 — 0.6m tall leaves clearance on both sides). -->
+      <a-image src="#logoImg" position="7.88 4.5 -4" rotation="0 -90 0"
+        width="0.6" height="0.6"></a-image>
 
       <!-- START target in the top-left corner of the front wall (from the player's
            side: left = −X, up = +Y). Flush in front of the wall (z=-9.8), with room
