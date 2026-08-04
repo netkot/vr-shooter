@@ -1561,21 +1561,33 @@ AFRAME.registerComponent('target', {
   },
 
   // Called by the shot on a hit. distance — shot distance (m) from the raycaster
-  // (origin → hit point); needed for scoring.
-  hit: function (sourceEl, distance) {
+  // (origin → hit point); needed for scoring. point — world-space impact point
+  // on the target surface (from the raycaster), used to originate the shard
+  // burst where the bullet actually struck rather than at the target center.
+  hit: function (sourceEl, distance, point) {
     if (!this.alive) return;
 
     const scene = this.el.sceneEl;
     const wp = new THREE.Vector3();
     this.el.object3D.getWorldPosition(wp);
 
+    // Shards/rubble originate at the actual impact point, and scatter biased
+    // outward along the center→impact direction (mostly the disc's face
+    // plane), so a hit near the rim throws debris toward that rim.
+    const origin = point || wp;
+    let biasDir = null;
+    if (point) {
+      biasDir = point.clone().sub(wp);
+      if (biasDir.lengthSq() > 1e-6) biasDir.normalize(); else biasDir = null;
+    }
     this.hp--;
 
     try { SFX.hit(wp); } catch (e) { /* sound is not critical for scoring */ }
 
     if (this.hp > 0) {
       // Target still alive: damage flash, a few chipped shards, no points awarded.
-      spawnShards(scene, wp, this.baseColor, 4);
+      spawnShards(scene, origin, this.baseColor, 4, biasDir);
+      spawnDebris(scene, origin, this.baseColor, 3, 0.015, 0.035, biasDir);
       this.flashDamage();
       return;
     }
@@ -1588,7 +1600,8 @@ AFRAME.registerComponent('target', {
     const dist = distance != null ? distance : SCORING.distRef; // fallback: neutral ×1
     const points = SCORING.compute(reactionMs, dist);
     scene.emit('target-hit', { points: points });
-    spawnShards(scene, wp, this.baseColor, 14);
+    spawnShards(scene, origin, this.baseColor, 14, biasDir);
+    spawnDebris(scene, origin, this.baseColor, 8, 0.015, 0.035, biasDir);
 
     // Remove the target instantly (scale 0 — rays no longer hit it).
     this.el.setAttribute('visible', false);
@@ -1829,19 +1842,30 @@ AFRAME.registerComponent('debris', {
   }
 });
 
-// Scatter `count` debris pieces from point pos.
-function spawnDebris (sceneEl, pos, color, count) {
+// Scatter `count` debris pieces from point pos. minSize/maxSize default to
+// fist-sized rubble (concrete crumble); pass smaller values for fine pebbles.
+// biasDir, if given, is a normalized outward direction (e.g. target
+// center → impact point) blended into the scatter so debris flies toward
+// the side that was actually hit, not just straight up.
+function spawnDebris (sceneEl, pos, color, count, minSize, maxSize, biasDir) {
+  minSize = minSize != null ? minSize : 0.05;
+  maxSize = maxSize != null ? maxSize : 0.12;
   for (let i = 0; i < count; i++) {
     const f = document.createElement('a-entity');
-    const s = 0.05 + Math.random() * 0.07;
+    const s = minSize + Math.random() * (maxSize - minSize);
     f.setAttribute('geometry', `primitive: box; width: ${s}; height: ${s}; depth: ${s}`);
     f.setAttribute('material', `color: ${color}; emissive: ${color}; emissiveIntensity: 0.25`);
     f.setAttribute('position', { x: pos.x, y: pos.y, z: pos.z });
 
-    // random scatter direction, biased upward
-    const vx = (Math.random() - 0.5) * 2;
-    const vy = Math.random() * 1.5 + 0.8;
-    const vz = (Math.random() - 0.5) * 2;
+    // random scatter direction, biased upward (and outward from biasDir, if given)
+    let vx = (Math.random() - 0.5) * 2;
+    let vy = Math.random() * 1.5 + 0.8;
+    let vz = (Math.random() - 0.5) * 2;
+    if (biasDir) {
+      vx += biasDir.x * 1.4;
+      vy += biasDir.y * 0.6;
+      vz += biasDir.z * 1.4;
+    }
     const len = Math.hypot(vx, vy, vz) || 1;
     const speed = 1.6 + Math.random() * 2.4;
 
@@ -1859,11 +1883,13 @@ function spawnDebris (sceneEl, pos, color, count) {
 }
 
 // Scatter `count` triangular shards from point pos — the way a clay target
-// breaks. Each shard is a thin prism: a random triangle extruded a few
-// millimeters (ExtrudeGeometry), so edge-on it reads as a plate with thickness,
-// not a zero-width line. Physics/fade are reused from the debris component;
-// only the geometry differs from spawnDebris.
-function spawnShards (sceneEl, pos, color, count) {
+// breaks. Each shard is a chunky prism: a random triangle extruded ~2–4cm
+// (ExtrudeGeometry), so it reads as a solid wedge of debris, not a flat
+// plate. Physics/fade are reused from the debris component; only the
+// geometry differs from spawnDebris. biasDir, if given, is a normalized
+// outward direction (target center → impact point) blended into the
+// scatter so shards fly toward the side that was actually hit.
+function spawnShards (sceneEl, pos, color, count, biasDir) {
   for (let i = 0; i < count; i++) {
     const f = document.createElement('a-entity');
 
@@ -1878,7 +1904,7 @@ function spawnShards (sceneEl, pos, color, count) {
       if (k === 0) shape.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
       else shape.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
     }
-    const depth = 0.004 + Math.random() * 0.004; // plate thickness, 4–8 mm
+    const depth = 0.018 + Math.random() * 0.022; // wedge thickness, 18–40 mm
     const geo = new THREE.ExtrudeGeometry(shape, { depth: depth, bevelEnabled: false });
     geo.translate(0, 0, -depth / 2); // center the thickness on the entity origin
     const mat = new THREE.MeshStandardMaterial({
@@ -1889,10 +1915,15 @@ function spawnShards (sceneEl, pos, color, count) {
     f.setObject3D('mesh', new THREE.Mesh(geo, mat));
     f.setAttribute('position', { x: pos.x, y: pos.y, z: pos.z });
 
-    // Scatter like debris: random direction, biased upward.
-    const vx = (Math.random() - 0.5) * 2;
-    const vy = Math.random() * 1.5 + 0.8;
-    const vz = (Math.random() - 0.5) * 2;
+    // Scatter like debris: random direction, biased upward (and outward from biasDir, if given).
+    let vx = (Math.random() - 0.5) * 2;
+    let vy = Math.random() * 1.5 + 0.8;
+    let vz = (Math.random() - 0.5) * 2;
+    if (biasDir) {
+      vx += biasDir.x * 1.4;
+      vy += biasDir.y * 0.6;
+      vz += biasDir.z * 1.4;
+    }
     const len = Math.hypot(vx, vy, vz) || 1;
     const speed = 1.6 + Math.random() * 2.4;
 
@@ -2252,7 +2283,7 @@ AFRAME.registerComponent('shoot', {
       } else if (targetEl && targetEl.components['reload-button']) {
         targetEl.components['reload-button'].hit(this.el);
       } else if (targetEl && targetEl.components.target) {
-        targetEl.components.target.hit(this.el, tHit.distance); // distance for scoring
+        targetEl.components.target.hit(this.el, tHit.distance, tHit.point); // distance for scoring, point for the shard burst
       }
     }
   },
