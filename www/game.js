@@ -813,12 +813,8 @@ AFRAME.registerComponent('rules-board', {
   // 'gap' — empty spacing. Score values are substituted from SCORING.
   lines: function () {
     const s = (typeof SCORING !== 'undefined') ? SCORING : null;
-    const base = s ? s.base : 50;
-    const tMax = s ? (1 + 1) : 2;                       // max time multiplier
-    const react = s ? (s.reactFull / 1000) : 2.5;      // s
-    const dRef = s ? s.distRef : 10;
-    const dMax = s ? s.distMax : 3;
-    const dMin = s ? s.distMin : 0.5;
+    const accMax = s ? s.accMax : 1.5;
+    const beatBonus = s ? s.beatBonus : 25;
     return [
       { type: 'head', text: 'HOW TO PLAY' },
       { type: 'item', text: 'Shoot START to begin' },
@@ -828,11 +824,9 @@ AFRAME.registerComponent('rules-board', {
       { type: 'item', text: 'Shoot RELOAD to restart' },
       { type: 'gap' },
       { type: 'head', text: 'SCORING' },
-      { type: 'item', text: 'Score = ' + base + ' × time × distance' },
-      { type: 'item', text: 'Fast hit: up to ×' + tMax + ' (after ' + react + 's → ×1)' },
-      { type: 'item', text: 'Farther shot scores more (×1 at ' + dRef + 'm)' },
-      { type: 'item', text: 'Distance range: ×' + dMin + '…×' + dMax },
-      { type: 'item', text: 'Speed + distance = high score' }
+      { type: 'item', text: 'Distance + speed + accuracy + beat = max score' },
+      { type: 'item', text: 'Bullseye scores up to ×' + accMax },
+      { type: 'item', text: 'On-beat hit: +' + beatBonus + ' bonus' }
     ];
   },
 
@@ -1488,13 +1482,21 @@ const SCORING = {
   distRef:   CFG('scoring.distRef', 10),     // m: distance giving a ×1 multiplier
   distMin:   CFG('scoring.distMin', 0.5),    // lower bound of the distance multiplier (close shot)
   distMax:   CFG('scoring.distMax', 3.0),    // upper bound (very far shot)
+  accMin:    CFG('scoring.accMin', 0.5),     // accuracy multiplier for a rim hit
+  accMax:    CFG('scoring.accMax', 1.5),     // accuracy multiplier for a dead-center hit
+  beatBonus: CFG('scoring.beatBonus', 25),   // flat bonus for a hit landing on the music beat
 
-  compute: function (reactionMs, distance) {
+  // accuracyFrac: 0 (rim) .. 1 (dead center) — see target.hit(). onBeat: whether
+  // the shot landed on a detected beat of the playing track (MUSIC.isOnBeat()).
+  compute: function (reactionMs, distance, accuracyFrac, onBeat) {
     const rf = Math.max(0, 1 - reactionMs / this.reactFull); // 1 instant → 0
     const timeMult = 1 + rf;                                  // 1..2
     const distMult = Math.min(this.distMax,
       Math.max(this.distMin, distance / this.distRef));
-    return Math.round(this.base * timeMult * distMult);
+    const af = Math.max(0, Math.min(1, accuracyFrac != null ? accuracyFrac : 1));
+    const accMult = this.accMin + (this.accMax - this.accMin) * af;
+    const bonus = onBeat ? this.beatBonus : 0;
+    return Math.round(this.base * timeMult * distMult * accMult) + bonus;
   }
 };
 
@@ -1602,15 +1604,22 @@ AFRAME.registerComponent('target', {
     // plane), so a hit near the rim throws debris toward that rim.
     const origin = point || wp;
     let biasDir = null;
+    let radialDist = 0;
     if (point) {
       biasDir = point.clone().sub(wp);
+      radialDist = biasDir.length();
       if (biasDir.lengthSq() > 1e-6) biasDir.normalize(); else biasDir = null;
     }
+    // How close to dead center the shot landed, 0 (rim/miss the disc) .. 1
+    // (bullseye) — feeds SCORING.compute()'s accuracy multiplier.
+    const effRadius = this.baseRadius * this.sizeScale();
+    const accuracyFrac = effRadius > 0 ? 1 - Math.min(1, radialDist / effRadius) : 1;
     this.hp--;
 
     try { SFX.hit(wp); } catch (e) { /* sound is not critical for scoring */ }
 
-    if (MUSIC.isOnBeat()) spawnBeatIndicator(scene, origin);
+    const onBeat = MUSIC.isOnBeat();
+    if (onBeat) spawnBeatIndicator(scene, origin);
 
     if (this.hp > 0) {
       // Target still alive: damage flash, a few chipped shards, no points awarded.
@@ -1620,13 +1629,14 @@ AFRAME.registerComponent('target', {
       return;
     }
 
-    // Target destroyed. Points depend on the reaction time (since spawn) and the
-    // shot distance — see SCORING.compute().
+    // Target destroyed. Points depend on the reaction time (since spawn), the
+    // shot distance, how close to center it landed, and whether it was on the
+    // music beat — see SCORING.compute().
     this.alive = false;
     clearTimeout(this._lifeT); // no more "time in view" needed
     const reactionMs = this.spawnTime != null ? performance.now() - this.spawnTime : 0;
     const dist = distance != null ? distance : SCORING.distRef; // fallback: neutral ×1
-    const points = SCORING.compute(reactionMs, dist);
+    const points = SCORING.compute(reactionMs, dist, accuracyFrac, onBeat);
     scene.emit('target-hit', { points: points });
     spawnShards(scene, origin, this.baseColor, 14, biasDir);
     spawnDebris(scene, origin, this.baseColor, 8, 0.015, 0.035, biasDir);

@@ -36,13 +36,16 @@ window.GAME_CONFIG = {
   },
 
   // --- Scoring -----------------------------------------------------------
-  // Total: base × time_multiplier(1..2) × distance_multiplier(distMin..distMax).
+  // Total: base × time_mult(1..2) × distance_mult(distMin..distMax) × accuracy_mult(accMin..accMax), + beatBonus.
   scoring: {
     base: 50,              // base points per hit
     reactFull: 2500,       // ms: reaction-speed bonus window (faster → more)
     distRef: 10,           // m: distance giving a ×1 multiplier
     distMin: 0.5,          // lower bound of the distance multiplier (close shot)
-    distMax: 3.0           // upper bound of the distance multiplier (far shot)
+    distMax: 3.0,          // upper bound of the distance multiplier (far shot)
+    accMin: 0.5,           // accuracy multiplier for a rim hit
+    accMax: 1.5,           // accuracy multiplier for a dead-center hit
+    beatBonus: 25          // flat bonus points for a hit landing on the music beat
   },
 
   // --- Misc --------------------------------------------------------------
