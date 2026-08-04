@@ -357,6 +357,7 @@ const MUSIC = {
   volume: CFG('audio.musicVolume', 0.5),  // target background volume (quieter than shots/hits)
   el: null,
   _fadeT: null,
+  current: null, // number of the track currently loaded (1..count), for isOnBeat()
 
   // Lazily create one <audio> and reuse it for all games.
   audio: function () {
@@ -375,11 +376,36 @@ const MUSIC = {
     clearInterval(this._fadeT);
     const n = Math.floor(Math.random() * this.count) + 1;     // 1..count
     const name = 'bg_' + String(n).padStart(2, '0') + '.mp3'; // bg_07.mp3
+    this.current = n;
     a.src = 'music/' + name;
     a.currentTime = 0;
     a.volume = this.volume;
     const p = a.play();
     if (p && p.catch) p.catch((e) => console.warn('MUSIC: failed to start ' + name, e));
+  },
+
+  // True if the music is currently within a beat-hit window of the playing
+  // track's nearest detected beat (see www/music-beats.js, generated offline
+  // by tools/beat-analysis/). Used to award a "Beat" bonus indicator on hits.
+  isOnBeat: function () {
+    const a = this.el;
+    if (!a || a.paused || !this.current) return false;
+    const track = window.MUSIC_BEATS && window.MUSIC_BEATS[this.current];
+    const beats = track && track.beats;
+    if (!beats || !beats.length) return false;
+
+    const t = a.currentTime;
+    // Binary search for the insertion point of t in the ascending beats array,
+    // then compare against its two neighbors to find the nearest beat.
+    let lo = 0, hi = beats.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (beats[mid] < t) lo = mid + 1; else hi = mid;
+    }
+    let nearest = beats[lo];
+    if (lo > 0 && Math.abs(beats[lo - 1] - t) < Math.abs(nearest - t)) nearest = beats[lo - 1];
+
+    return Math.abs(nearest - t) <= CFG('audio.beatToleranceMs', 120) / 1000;
   },
 
   // Game end: a smooth fade-out over ~1.5 s, then stop and reset.
@@ -1584,6 +1610,8 @@ AFRAME.registerComponent('target', {
 
     try { SFX.hit(wp); } catch (e) { /* sound is not critical for scoring */ }
 
+    if (MUSIC.isOnBeat()) spawnBeatIndicator(scene, origin);
+
     if (this.hp > 0) {
       // Target still alive: damage flash, a few chipped shards, no points awarded.
       spawnShards(scene, origin, this.baseColor, 4, biasDir);
@@ -1881,6 +1909,50 @@ function spawnDebris (sceneEl, pos, color, count, minSize, maxSize, biasDir) {
     sceneEl.appendChild(f);
   }
 }
+
+// A short-lived "⚡ Beat" popup shown above a target when a hit lands on the
+// beat of the currently playing track (see MUSIC.isOnBeat() / music-beats.js).
+// Rises and fades out, then self-removes — same disposable-entity pattern as
+// debris/shards above, just driven by ctext (canvas text) instead of geometry.
+// No rotation is set: like every other ctext panel in the scene (mission board,
+// stats table, level banner), the plane's default +Z facing already points at
+// the player — the targets' own "90 0 0" is specific to orienting their
+// cylinder geometry and isn't a facing convention to copy onto a text plane.
+function spawnBeatIndicator(sceneEl, pos) {
+  const f = document.createElement('a-entity');
+  f.setAttribute('position', { x: pos.x, y: pos.y + 0.15, z: pos.z });
+  f.setAttribute('ctext', { value: '⚡\nBeat', color: '#FFD700', size: 0.22 });
+  f.setAttribute('beat-indicator', {});
+  sceneEl.appendChild(f);
+}
+
+AFRAME.registerComponent('beat-indicator', {
+  schema: {
+    life: { default: 750 },
+    riseSpeed: { default: 0.4 } // m/s upward drift
+  },
+
+  init: function () {
+    this.age = 0;
+  },
+
+  tick: function (t, dt) {
+    if (!dt) return;
+    this.age += dt;
+    this.el.object3D.position.y += this.data.riseSpeed * (dt / 1000);
+
+    // removal + fade in the last third of the life
+    const k = this.age / this.data.life;
+    if (k >= 1) {
+      if (this.el.parentNode) this.el.parentNode.removeChild(this.el);
+      return;
+    }
+    if (k > 0.66) {
+      const mesh = this.el.getObject3D('ctext');
+      if (mesh && mesh.material) mesh.material.opacity = 1 - (k - 0.66) / 0.34;
+    }
+  }
+});
 
 // Scatter `count` triangular shards from point pos — the way a clay target
 // breaks. Each shard is a chunky prism: a random triangle extruded ~2–4cm

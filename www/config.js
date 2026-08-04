@@ -16,7 +16,8 @@ window.GAME_CONFIG = {
   audio: {
     masterVolume: 0.5,     // overall volume of sound effects (shots, hits)
     musicVolume: 0.5,      // background music volume (quieter than effects)
-    musicTrackCount: 20    // how many tracks bg_01.mp3 … bg_NN.mp3 live in music/
+    musicTrackCount: 20,   // how many tracks bg_01.mp3 … bg_NN.mp3 live in music/
+    beatToleranceMs: 120   // how close (ms) a hit must land to a detected beat to count
   },
 
   // --- Levels and difficulty ---------------------------------------------

@@ -4,3 +4,6 @@ CLAUDE.md
 
 # OSPanel local SSL certificates
 www/.osp/ssl/
+
+# Offline beat-analysis tool (dev-only, not part of the served site)
+tools/beat-analysis/node_modules/

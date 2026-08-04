@@ -1,0 +1,12 @@
+{
+  "name": "beat-analysis",
+  "private": true,
+  "description": "Offline tool: decodes www/music/bg_*.mp3 via ffmpeg and detects beat timestamps with music-tempo, writing www/music-beats.js. Not part of the served site.",
+  "type": "commonjs",
+  "scripts": {
+    "analyze": "node analyze-beats.js"
+  },
+  "dependencies": {
+    "music-tempo": "^1.0.3"
+  }
+}
