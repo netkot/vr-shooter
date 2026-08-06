@@ -1976,19 +1976,41 @@ function spawnShards (sceneEl, pos, color, count, biasDir) {
     const f = document.createElement('a-entity');
 
     // Random triangle profile: three vertices at ~120° around the center with
-    // jittered angles and radii — every shard has its own shape.
+    // jittered angles and radii — every shard has its own shape. Each vertex
+    // also gets its own thickness, so the prism comes out skewed/beveled
+    // rather than a uniform wedge — reads more like a jagged chunk.
     const r = 0.05 + Math.random() * 0.09;
     const a0 = Math.random() * Math.PI * 2;
-    const shape = new THREE.Shape();
+    const pts = [];
     for (let k = 0; k < 3; k++) {
       const a = a0 + k * (Math.PI * 2 / 3) + (Math.random() - 0.5) * 0.9;
       const rr = r * (0.55 + Math.random() * 0.75);
-      if (k === 0) shape.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
-      else shape.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      pts.push({ x: Math.cos(a) * rr, y: Math.sin(a) * rr });
     }
-    const depth = 0.018 + Math.random() * 0.022; // wedge thickness, 18–40 mm
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: depth, bevelEnabled: false });
-    geo.translate(0, 0, -depth / 2); // center the thickness on the entity origin
+    const thick = pts.map(() => 0.036 + Math.random() * 0.044); // ~36–80mm per vertex
+
+    const positions = [];
+    const push = (x, y, z) => positions.push(x, y, z);
+    // front face (CCW, +z) / back face (reversed, -z)
+    push(pts[0].x, pts[0].y, thick[0] / 2);
+    push(pts[1].x, pts[1].y, thick[1] / 2);
+    push(pts[2].x, pts[2].y, thick[2] / 2);
+    push(pts[0].x, pts[0].y, -thick[0] / 2);
+    push(pts[2].x, pts[2].y, -thick[2] / 2);
+    push(pts[1].x, pts[1].y, -thick[1] / 2);
+    // sides, per edge i -> i+1: (F_i, B_i, F_i+1) and (F_i+1, B_i, B_i+1)
+    for (let i = 0; i < 3; i++) {
+      const j = (i + 1) % 3;
+      const Fi = [pts[i].x, pts[i].y, thick[i] / 2];
+      const Fj = [pts[j].x, pts[j].y, thick[j] / 2];
+      const Bi = [pts[i].x, pts[i].y, -thick[i] / 2];
+      const Bj = [pts[j].x, pts[j].y, -thick[j] / 2];
+      push(...Fi); push(...Bi); push(...Fj);
+      push(...Fj); push(...Bi); push(...Bj);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.computeVertexNormals();
     const mat = new THREE.MeshStandardMaterial({
       color: color,
       emissive: color,
