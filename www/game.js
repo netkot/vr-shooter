@@ -384,15 +384,14 @@ const MUSIC = {
     if (p && p.catch) p.catch((e) => console.warn('MUSIC: failed to start ' + name, e));
   },
 
-  // True if the music is currently within a beat-hit window of the playing
-  // track's nearest detected beat (see www/music-beats.js, generated offline
-  // by tools/beat-analysis/). Used to award a "Beat" bonus indicator on hits.
-  isOnBeat: function () {
+  // Seconds from the current playback position to the nearest detected beat
+  // of the playing track, or Infinity if there's no track/beat data playing.
+  _nearestBeatDelta: function () {
     const a = this.el;
-    if (!a || a.paused || !this.current) return false;
+    if (!a || a.paused || !this.current) return Infinity;
     const track = window.MUSIC_BEATS && window.MUSIC_BEATS[this.current];
     const beats = track && track.beats;
-    if (!beats || !beats.length) return false;
+    if (!beats || !beats.length) return Infinity;
 
     const t = a.currentTime;
     // Binary search for the insertion point of t in the ascending beats array,
@@ -405,7 +404,23 @@ const MUSIC = {
     let nearest = beats[lo];
     if (lo > 0 && Math.abs(beats[lo - 1] - t) < Math.abs(nearest - t)) nearest = beats[lo - 1];
 
-    return Math.abs(nearest - t) <= CFG('audio.beatToleranceMs', 120) / 1000;
+    return Math.abs(nearest - t);
+  },
+
+  // True if the music is currently within a beat-hit window of the playing
+  // track's nearest detected beat (see www/music-beats.js, generated offline
+  // by tools/beat-analysis/). Used to award a "Beat" bonus indicator on hits.
+  isOnBeat: function () {
+    return this._nearestBeatDelta() <= CFG('audio.beatToleranceMs', 120) / 1000;
+  },
+
+  // 0..1: how close playback is to the nearest beat right now — 1 exactly on
+  // the beat, decaying linearly to 0 at windowMs away. Drives the targets'
+  // orange beat-pulse tint (see the 'target' component's tick()).
+  beatProximity: function (windowMs) {
+    const w = (windowMs != null ? windowMs : 180) / 1000;
+    const d = this._nearestBeatDelta();
+    return d >= w ? 0 : 1 - d / w;
   },
 
   // Game end: a smooth fade-out over ~1.5 s, then stop and reset.
@@ -1658,15 +1673,34 @@ AFRAME.registerComponent('target', {
   },
 
   // White flash and color darkening proportional to the damage taken.
+  // this._flashing gates the beat-pulse tick() below so it doesn't fight the flash.
   flashDamage: function () {
     this.setColor('#FFFFFF');
+    this._flashing = true;
     clearTimeout(this._flashT);
     this._flashT = setTimeout(() => {
+      this._flashing = false;
       const frac = this.hp / this.maxHealth;           // 1 → 0 as damage accrues
       const c = new THREE.Color(this.baseColor);
       c.lerp(new THREE.Color('#2a0d0d'), 1 - frac);     // the lower the hp, the darker
       this.setColor('#' + c.getHexString());
     }, 80);
+  },
+
+  // Subtle orange pulse in sync with the music beat (see MUSIC.beatProximity()).
+  // Skipped while alive is false or the hit-flash above is showing. Only touches
+  // the material while actually pulsing (or just finished, to revert), so idle
+  // targets between beats cost nothing.
+  tick: function () {
+    if (!this.alive || this._flashing) return;
+    const proximity = MUSIC.beatProximity();
+    if (proximity <= 0 && !this._pulsing) return;
+    this._pulsing = proximity > 0;
+
+    const c = new THREE.Color(this.baseColor);
+    if (this.hp < this.maxHealth) c.lerp(new THREE.Color('#2a0d0d'), 1 - this.hp / this.maxHealth);
+    if (proximity > 0) c.lerp(new THREE.Color('#FF8C00'), proximity * 0.5);
+    this.setColor('#' + c.getHexString());
   },
 
   respawn: function () {
