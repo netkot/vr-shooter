@@ -834,7 +834,7 @@ AFRAME.registerComponent('rules-board', {
       { type: 'head', text: 'HOW TO PLAY' },
       { type: 'item', text: 'Shoot START to begin' },
       { type: 'item', text: 'Hit targets to clear each level' },
-      { type: 'item', text: (this.maxLevel() || 5) + ' levels, then GAME OVER' },
+      { type: 'item', text: CFG('levels.maxLevel', 10) + ' levels, then GAME OVER' },
       { type: 'item', text: 'Targets shrink every level' },
       { type: 'item', text: 'Shoot RELOAD to restart' },
       { type: 'gap' },
@@ -843,12 +843,6 @@ AFRAME.registerComponent('rules-board', {
       { type: 'item', text: 'Bullseye scores up to ×' + accMax },
       { type: 'item', text: 'On-beat hit: +' + beatBonus + ' bonus' }
     ];
-  },
-
-  // Fetch the level count from the levels component on the scene (if present).
-  maxLevel: function () {
-    const lv = this.el.sceneEl && this.el.sceneEl.components.levels;
-    return lv && lv.data ? lv.data.maxLevel : null;
   },
 
   draw: function () {
@@ -1693,13 +1687,18 @@ AFRAME.registerComponent('target', {
   // targets between beats cost nothing.
   tick: function () {
     if (!this.alive || this._flashing) return;
-    const proximity = MUSIC.beatProximity();
+    // Narrower window + squared falloff than beatProximity()'s own default:
+    // makes the pulse read as a sharp "pop" on the beat instead of a near-
+    // constant warm tint (a linear 180ms window is on ~75% of the time at
+    // typical track tempos, too subtle to register as rhythmic).
+    const proximity = MUSIC.beatProximity(110);
     if (proximity <= 0 && !this._pulsing) return;
     this._pulsing = proximity > 0;
+    const eased = proximity * proximity;
 
     const c = new THREE.Color(this.baseColor);
     if (this.hp < this.maxHealth) c.lerp(new THREE.Color('#2a0d0d'), 1 - this.hp / this.maxHealth);
-    if (proximity > 0) c.lerp(new THREE.Color('#FF8C00'), proximity * 0.5);
+    if (eased > 0) c.lerp(new THREE.Color('#FF8C00'), eased * 0.85);
     this.setColor('#' + c.getHexString());
   },
 
